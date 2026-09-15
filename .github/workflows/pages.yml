@@ -1,4 +1,4 @@
-name: Deploy test site
+name: Deploy interleaving preview
 on:
   push:
     branches: [main]
@@ -15,8 +15,49 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: azwsxe9564-prog/-
+          ref: main
+          path: source
+      - name: Build preview
+        run: |
+          set -euo pipefail
+          mkdir -p _site/data
+          cp source/site_index_v4.html _site/index.html
+          cp source/data/bank.json _site/data/bank.json
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('_site/index.html'); h=p.read_text(encoding='utf-8')
+          card='''<div id="modeInterleave" class="mode" onclick="setMode('interleave')"><h3>🔀 交錯學習</h3><div class="muted">跨科交替出題，避免同科連續練習。</div></div>'''
+          if 'id="modeInterleave"' not in h:
+              i=h.find('<div id="modeExam"')
+              if i<0: raise SystemExit('Exam mode card not found')
+              j=h.find('</div>',i)+6; h=h[:j]+card+h[j:]
+          old="function setMode(m){mode=m;$('modeFast').classList.toggle('active',m==='fast');$('modeExam').classList.toggle('active',m==='exam')}"
+          new="function setMode(m){mode=m;$('modeFast').classList.toggle('active',m==='fast');$('modeExam').classList.toggle('active',m==='exam');if($('modeInterleave'))$('modeInterleave').classList.toggle('active',m==='interleave')}\nfunction interleavePool(p,n){const g={};p.forEach(x=>{const k=x.subject||'其他';(g[k]??=[]).push(x)});Object.values(g).forEach(a=>a.sort(()=>Math.random()-.5));const keys=Object.keys(g).sort(()=>Math.random()-.5),out=[];let last=null;while(out.length<Math.min(n,p.length)){const c=keys.filter(k=>g[k].length&&k!==last),a=c.length?c:keys.filter(k=>g[k].length),k=a[Math.floor(Math.random()*a.length)];out.push(g[k].shift());last=k}return out}"
+          if old in h: h=h.replace(old,new,1)
+          elif 'function interleavePool(' not in h: raise SystemExit('setMode function not found')
+          old='quiz=shuffle(p).slice(0,Math.min(n,p.length));'
+          new="quiz=mode==='interleave'?interleavePool(p,Math.min(n,p.length)):shuffle(p).slice(0,Math.min(n,p.length));"
+          if old in h: h=h.replace(old,new,1)
+          elif "mode==='interleave'?interleavePool" not in h: raise SystemExit('Quiz selection code not found')
+          p.write_text(h,encoding='utf-8')
+          PY
+          touch _site/.nojekyll
+          test -s _site/data/bank.json
+          grep -q '交錯學習' _site/index.html
+          grep -q 'interleavePool' _site/index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - uses: actions/deploy-pages@v4
+        id: deployment
