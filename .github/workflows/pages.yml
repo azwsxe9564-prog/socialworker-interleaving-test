@@ -4,14 +4,9 @@ on:
     branches: [main]
   workflow_dispatch:
 permissions:
-  contents: read
-  pages: write
-  id-token: write
-concurrency:
-  group: pages
-  cancel-in-progress: true
+  contents: write
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,80 +15,49 @@ jobs:
           repository: azwsxe9564-prog/-
           ref: main
           path: source
-      - name: Build preview
-        shell: bash
+      - name: Build test site
         run: |
           set -euo pipefail
-          mkdir -p _site/data
-          cp source/site_index_v4.html _site/index.html
-          cp source/data/bank.json _site/data/bank.json
+          cp source/site_index_v4.html ./preview.html
+          cp source/data/bank.json ./bank.json
           python - <<'PY'
           from pathlib import Path
-          p = Path('_site/index.html')
-          h = p.read_text(encoding='utf-8')
-          card = '''<div id="modeInterleave" class="mode" onclick="setMode('interleave')"><h3>🔀 交錯學習</h3><div class="muted">跨科交替出題，避免同科連續練習。</div></div>'''
+          p=Path('preview.html')
+          h=p.read_text(encoding='utf-8')
+          card='''<div id="modeInterleave" class="mode" onclick="setMode('interleave')"><h3>🔀 交錯學習</h3><div class="muted">跨科交替出題，避免同科連續練習。</div></div>'''
           if 'id="modeInterleave"' not in h:
-              marker = '<div id="modeExam"'
-              i = h.find(marker)
-              if i < 0:
-                  raise SystemExit('Could not locate modeExam card')
-              end = h.find('</div>', i)
-              if end < 0:
-                  raise SystemExit('Could not locate end of modeExam card')
-              end += len('</div>')
-              h = h[:end] + '\n' + card + h[end:]
-
-          start = h.find('function setMode(')
-          if start < 0:
-              raise SystemExit('Could not locate setMode function')
-          end = h.find('\n', start)
-          if end < 0:
-              end = h.find('}', start) + 1
-          current = h[start:end].strip()
-          if "modeInterleave" not in current:
-              new_mode = "function setMode(m){mode=m;$('modeFast').classList.toggle('active',m==='fast');$('modeExam').classList.toggle('active',m==='exam');if($('modeInterleave'))$('modeInterleave').classList.toggle('active',m==='interleave')}"
-              h = h[:start] + new_mode + h[end:]
-
+              anchor='<div id="modeExam"'
+              i=h.find(anchor)
+              if i<0: raise SystemExit('modeExam not found')
+              end=h.find('</div>',i)
+              if end<0: raise SystemExit('modeExam end not found')
+              end+=6
+              h=h[:end]+'\n'+card+h[end:]
           if 'function interleavePool(' not in h:
-              anchor = 'function startQuiz()'
-              i = h.find(anchor)
-              if i < 0:
-                  raise SystemExit('Could not locate startQuiz function')
-              fn = "function interleavePool(p,n){const groups={};p.forEach(q=>{const s=q.subject||'其他';(groups[s]||(groups[s]=[])).push(q)});const keys=Object.keys(groups);keys.forEach(k=>groups[k].sort(()=>Math.random()-.5));const out=[];let previous=null;while(out.length<Math.min(n,p.length)){let choices=keys.filter(k=>groups[k].length&&k!==previous);if(!choices.length)choices=keys.filter(k=>groups[k].length);const k=choices[Math.floor(Math.random()*choices.length)];out.push(groups[k].pop());previous=k}return out}\n"
-              h = h[:i] + fn + h[i:]
-
-          if "mode==='interleave'?interleavePool" not in h:
-              import re
-              patterns = [
-                  r"quiz\s*=\s*shuffle\(p\)\.slice\(0,Math\.min\(n,p\.length\)\);",
-                  r"quiz\s*=\s*\[\.\.\.p\]\.sort\(\(\)=>Math\.random\(\)-\.5\)\.slice\(0,Math\.min\(n,p\.length\)\);",
-                  r"quiz\s*=\s*shuffle\(p\)\.slice\(0,\s*Math\.min\(n,p\.length\)\);"
-              ]
-              replacement = "quiz=mode==='interleave'?interleavePool(p,Math.min(n,p.length)):[...p].sort(()=>Math.random()-.5).slice(0,Math.min(n,p.length));"
-              for pat in patterns:
-                  h2, count = re.subn(pat, replacement, h, count=1)
-                  if count:
-                      h = h2
-                      break
-              else:
-                  raise SystemExit('Could not locate quiz selection code')
-
-          p.write_text(h, encoding='utf-8')
+              i=h.find('function startQuiz(')
+              if i<0: raise SystemExit('startQuiz not found')
+              fn="function interleavePool(p,n){const g={};p.forEach(q=>(g[q.subject||'其他']??=[]).push(q));const keys=Object.keys(g),out=[];keys.forEach(k=>g[k].sort(()=>Math.random()-.5));let last=null;while(out.length<Math.min(n,p.length)){let a=keys.filter(k=>g[k].length&&k!==last);if(!a.length)a=keys.filter(k=>g[k].length);const k=a[Math.floor(Math.random()*a.length)];out.push(g[k].pop());last=k}return out}\n"
+              h=h[:i]+fn+h[i:]
+          h=h.replace("function setMode(m){mode=m;$('modeFast').classList.toggle('active',m==='fast');$('modeExam').classList.toggle('active',m==='exam')}","function setMode(m){mode=m;$('modeFast').classList.toggle('active',m==='fast');$('modeExam').classList.toggle('active',m==='exam');if($('modeInterleave'))$('modeInterleave').classList.toggle('active',m==='interleave')}",1)
+          import re
+          pat=r"quiz\s*=\s*([^;]+\.slice\(0,\s*Math\.min\(n,p\.length\)\));"
+          m=re.search(pat,h)
+          if m and "interleavePool" not in m.group(0):
+              h=h[:m.start()]+"quiz=mode==='interleave'?interleavePool(p,Math.min(n,p.length)):"+m.group(1)+";"+h[m.end():]
+          p.write_text(h,encoding='utf-8')
           PY
-          touch _site/.nojekyll
-          test -s _site/data/bank.json
-          grep -q '交錯學習' _site/index.html
-          grep -q 'function interleavePool' _site/index.html
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/deploy-pages@v4
-        id: deployment
+          mkdir -p site/data
+          mv preview.html site/index.html
+          mv bank.json site/data/bank.json
+          touch site/.nojekyll
+      - name: Publish to gh-pages branch
+        run: |
+          set -euo pipefail
+          cd site
+          git init
+          git checkout -b gh-pages
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .
+          git commit -m 'Deploy interleaving test site'
+          git push --force https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} gh-pages
