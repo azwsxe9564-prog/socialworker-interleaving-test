@@ -21,6 +21,7 @@ jobs:
           ref: main
           path: source
       - name: Build preview
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p _site/data
@@ -31,38 +32,59 @@ jobs:
           p = Path('_site/index.html')
           h = p.read_text(encoding='utf-8')
           card = '''<div id="modeInterleave" class="mode" onclick="setMode('interleave')"><h3>🔀 交錯學習</h3><div class="muted">跨科交替出題，避免同科連續練習。</div></div>'''
-          exam = '''<div id="modeExam" class="mode" onclick="setMode('exam')"><h3>📝 模擬考</h3><div class="muted">作答中不揭露答案，最後一題才可交卷，適合完整應試訓練。</div></div>'''
           if 'id="modeInterleave"' not in h:
-              if exam not in h:
-                  raise SystemExit('Could not locate exact exam mode card')
-              h = h.replace(exam, exam + '\n' + card, 1)
-          old_mode = "function setMode(m){mode=m;$('modeFast').classList.toggle('active',m==='fast');$('modeExam').classList.toggle('active',m==='exam')}"
-          new_mode = "function setMode(m){mode=m;$('modeFast').classList.toggle('active',m==='fast');$('modeExam').classList.toggle('active',m==='exam');if($('modeInterleave'))$('modeInterleave').classList.toggle('active',m==='interleave')}"
-          if old_mode in h:
-              h = h.replace(old_mode, new_mode, 1)
-          elif new_mode not in h:
+              marker = '<div id="modeExam"'
+              i = h.find(marker)
+              if i < 0:
+                  raise SystemExit('Could not locate modeExam card')
+              end = h.find('</div>', i)
+              if end < 0:
+                  raise SystemExit('Could not locate end of modeExam card')
+              end += len('</div>')
+              h = h[:end] + '\n' + card + h[end:]
+
+          start = h.find('function setMode(')
+          if start < 0:
               raise SystemExit('Could not locate setMode function')
-          old_quiz = "quiz=[...p].sort(()=>Math.random()-.5).slice(0,Math.min(n,p.length));"
-          interleave = "function interleavePool(p,n){const groups={};p.forEach(q=>{const s=q.subject||'其他';(groups[s]||(groups[s]=[])).push(q)});const keys=Object.keys(groups);keys.forEach(k=>groups[k].sort(()=>Math.random()-.5));const out=[];let previous=null;while(out.length<Math.min(n,p.length)){let choices=keys.filter(k=>groups[k].length&&k!==previous);if(!choices.length)choices=keys.filter(k=>groups[k].length);const k=choices[Math.floor(Math.random()*choices.length)];out.push(groups[k].pop());previous=k}return out}\n"
+          end = h.find('\n', start)
+          if end < 0:
+              end = h.find('}', start) + 1
+          current = h[start:end].strip()
+          if "modeInterleave" not in current:
+              new_mode = "function setMode(m){mode=m;$('modeFast').classList.toggle('active',m==='fast');$('modeExam').classList.toggle('active',m==='exam');if($('modeInterleave'))$('modeInterleave').classList.toggle('active',m==='interleave')}"
+              h = h[:start] + new_mode + h[end:]
+
           if 'function interleavePool(' not in h:
               anchor = 'function startQuiz()'
-              if anchor not in h:
+              i = h.find(anchor)
+              if i < 0:
                   raise SystemExit('Could not locate startQuiz function')
-              h = h.replace(anchor, interleave + anchor, 1)
-          new_quiz = "quiz=mode==='interleave'?interleavePool(p,Math.min(n,p.length)):[...p].sort(()=>Math.random()-.5).slice(0,Math.min(n,p.length));"
-          if old_quiz in h:
-              h = h.replace(old_quiz, new_quiz, 1)
-          elif new_quiz not in h:
-              raise SystemExit('Could not locate exact quiz selection expression')
+              fn = "function interleavePool(p,n){const groups={};p.forEach(q=>{const s=q.subject||'其他';(groups[s]||(groups[s]=[])).push(q)});const keys=Object.keys(groups);keys.forEach(k=>groups[k].sort(()=>Math.random()-.5));const out=[];let previous=null;while(out.length<Math.min(n,p.length)){let choices=keys.filter(k=>groups[k].length&&k!==previous);if(!choices.length)choices=keys.filter(k=>groups[k].length);const k=choices[Math.floor(Math.random()*choices.length)];out.push(groups[k].pop());previous=k}return out}\n"
+              h = h[:i] + fn + h[i:]
+
+          if "mode==='interleave'?interleavePool" not in h:
+              import re
+              patterns = [
+                  r"quiz\s*=\s*shuffle\(p\)\.slice\(0,Math\.min\(n,p\.length\)\);",
+                  r"quiz\s*=\s*\[\.\.\.p\]\.sort\(\(\)=>Math\.random\(\)-\.5\)\.slice\(0,Math\.min\(n,p\.length\)\);",
+                  r"quiz\s*=\s*shuffle\(p\)\.slice\(0,\s*Math\.min\(n,p\.length\)\);"
+              ]
+              replacement = "quiz=mode==='interleave'?interleavePool(p,Math.min(n,p.length)):[...p].sort(()=>Math.random()-.5).slice(0,Math.min(n,p.length));"
+              for pat in patterns:
+                  h2, count = re.subn(pat, replacement, h, count=1)
+                  if count:
+                      h = h2
+                      break
+              else:
+                  raise SystemExit('Could not locate quiz selection code')
+
           p.write_text(h, encoding='utf-8')
           PY
           touch _site/.nojekyll
           test -s _site/data/bank.json
           grep -q '交錯學習' _site/index.html
-          grep -q 'interleavePool' _site/index.html
+          grep -q 'function interleavePool' _site/index.html
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
