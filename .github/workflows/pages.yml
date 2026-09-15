@@ -35,7 +35,7 @@ jobs:
           if 'id="modeInterleave"' not in h:
               if exam not in h:
                   raise SystemExit('Could not locate exact exam mode card')
-              h = h.replace(exam, exam + '\\n' + card, 1)
+              h = h.replace(exam, exam + '\n' + card, 1)
           old_mode = "function setMode(m){mode=m;$('modeFast').classList.toggle('active',m==='fast');$('modeExam').classList.toggle('active',m==='exam')}"
           new_mode = "function setMode(m){mode=m;$('modeFast').classList.toggle('active',m==='fast');$('modeExam').classList.toggle('active',m==='exam');if($('modeInterleave'))$('modeInterleave').classList.toggle('active',m==='interleave')}"
           if old_mode in h:
@@ -61,6 +61,8 @@ jobs:
           grep -q '交錯學習' _site/index.html
           grep -q 'interleavePool' _site/index.html
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
