@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>社工師國考｜交錯學習測試版</title></head>
+<body><div id="app">載入中…</div>
+<script>
+const subjects=['社會工作研究方法','人類行為與社會環境','社會工作','社會工作直接服務','社會政策與社會立法'];
+fetch('data/bank.json').then(r=>r.json()).then(d=>{const q=d.questions||[];const queues=subjects.map(s=>q.filter(x=>x.subject===s).sort(()=>Math.random()-0.5));const quiz=[];let left=true;while(left){left=false;for(const a of queues){if(a.length){quiz.push(a.shift());left=true;}}}const sample=quiz.slice(0,20);document.getElementById('app').innerHTML='<h1>社工師國考｜交錯學習測試版</h1><p>獨立測試站｜五科交錯出題</p><p>題庫 '+q.length+' 題，本輪 '+sample.length+' 題</p><ol>'+sample.map(x=>'<li><b>['+x.subject+']</b> '+x.question+'</li>').join('')+'</ol>';}).catch(e=>document.getElementById('app').textContent='題庫載入失敗：'+e);
+</script></body></html>
